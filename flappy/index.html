@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#70c5ce">
+<title>Flappy</title>
+<style>
+  html,body{margin:0;height:100%;background:#222;overflow:hidden;overscroll-behavior:none}
+  canvas{display:block;width:100%;height:100%;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+"use strict";
+// Logical world is fixed (W x H) and scaled to fit the screen, so physics are identical on every device.
+const W = 360, H = 640, GROUND = 70, GAP = 150, PIPE_W = 56, SPACING = 200;
+const GRAVITY = 1500, FLAP = -430, SPEED = 130, STEP = 1 / 120;
+const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+let scale = 1, ox = 0, oy = 0;
+let bird, pipes, score, state, best = +(localStorage.getItem("flappyBest") || 0), acc = 0, last = 0, scroll = 0;
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(innerWidth * dpr);
+  cv.height = Math.round(innerHeight * dpr);
+  scale = Math.min(cv.width / W, cv.height / H);
+  ox = (cv.width - W * scale) / 2;
+  oy = (cv.height - H * scale) / 2;
+}
+
+function reset() {
+  bird = { x: 90, y: H / 2 - 30, v: 0 };
+  pipes = [];
+  score = 0;
+  state = "ready";
+}
+
+function addPipe(x) {
+  pipes.push({ x, top: 60 + Math.random() * (H - GROUND - GAP - 120), passed: false });
+}
+
+function flap() {
+  if (state === "over") { if (performance.now() - overAt > 400) reset(); return; }
+  if (state === "ready") {
+    state = "play";
+    addPipe(W + 40);
+  }
+  bird.v = FLAP;
+}
+
+let overAt = 0;
+function die() {
+  state = "over";
+  overAt = performance.now();
+  if (score > best) { best = score; try { localStorage.setItem("flappyBest", best); } catch (e) {} }
+}
+
+function update(dt) {
+  scroll = (scroll + SPEED * dt) % 24;
+  if (state === "ready") { bird.y = H / 2 - 30 + Math.sin(performance.now() / 200) * 8; return; }
+  if (state !== "play") return;
+  bird.v += GRAVITY * dt;
+  bird.y += bird.v * dt;
+  for (const p of pipes) p.x -= SPEED * dt;
+  if (pipes[0].x < -PIPE_W) pipes.shift();
+  if (pipes[pipes.length - 1].x < W - SPACING) addPipe(W + 20);
+  const r = 12;
+  if (bird.y + r > H - GROUND || bird.y - r < -40) return die();
+  for (const p of pipes) {
+    if (!p.passed && p.x + PIPE_W < bird.x) { p.passed = true; score++; }
+    const inX = bird.x + r > p.x && bird.x - r < p.x + PIPE_W;
+    if (inX && (bird.y - r < p.top || bird.y + r > p.top + GAP)) return die();
+  }
+}
+
+function text(s, y, size) {
+  ctx.font = "bold " + size + "px sans-serif";
+  ctx.textAlign = "center";
+  ctx.lineWidth = 5; ctx.strokeStyle = "#000"; ctx.strokeText(s, W / 2, y);
+  ctx.fillStyle = "#fff"; ctx.fillText(s, W / 2, y);
+}
+
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#222"; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.setTransform(scale, 0, 0, scale, ox, oy);
+  ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
+  ctx.fillStyle = "#70c5ce"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#5cb85c";
+  for (const p of pipes) {
+    ctx.fillRect(p.x, 0, PIPE_W, p.top);
+    ctx.fillRect(p.x, p.top + GAP, PIPE_W, H - GROUND - p.top - GAP);
+    ctx.fillRect(p.x - 4, p.top - 20, PIPE_W + 8, 20);
+    ctx.fillRect(p.x - 4, p.top + GAP, PIPE_W + 8, 20);
+  }
+  ctx.fillStyle = "#ded895"; ctx.fillRect(0, H - GROUND, W, GROUND);
+  ctx.fillStyle = "#8ac04a";
+  for (let x = -scroll; x < W; x += 24) ctx.fillRect(x, H - GROUND, 12, 10);
+  ctx.save();
+  ctx.translate(bird.x, bird.y);
+  ctx.rotate(Math.max(-0.5, Math.min(1.2, bird.v / 500)));
+  ctx.fillStyle = "#f7d02c"; ctx.beginPath(); ctx.arc(0, 0, 14, 0, 7); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(6, -4, 5, 0, 7); ctx.fill();
+  ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(8, -4, 2, 0, 7); ctx.fill();
+  ctx.fillStyle = "#f58220"; ctx.fillRect(10, 2, 10, 6);
+  ctx.restore();
+  if (state === "ready") text("Dotknij, aby zacząć", 200, 24);
+  else text(score, 80, 48);
+  if (state === "over") {
+    text("Koniec gry", 250, 36);
+    text("Wynik: " + score + "  Rekord: " + best, 295, 20);
+    text("Dotknij, aby zagrać", 340, 20);
+  }
+}
+
+// Fixed timestep keeps gameplay deterministic regardless of the display refresh rate.
+function loop(t) {
+  acc += Math.min((t - last) / 1000, 0.1);
+  last = t;
+  while (acc >= STEP) { update(STEP); acc -= STEP; }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+addEventListener("resize", resize);
+addEventListener("pointerdown", e => { e.preventDefault(); flap(); }, { passive: false });
+addEventListener("keydown", e => { if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); if (!e.repeat) flap(); } });
+resize(); reset();
+requestAnimationFrame(t => { last = t; loop(t); });
+</script>
+</body>
+</html>
