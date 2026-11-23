@@ -1,0 +1,9 @@
+{
+  "name": "Flappy",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "postAttachCommand": "python3 -m http.server 8080 --directory flappy",
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": { "label": "Flappy", "onAutoForward": "openBrowser" }
+  }
+}
